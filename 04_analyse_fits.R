@@ -18,7 +18,7 @@ pp <- list()
 pp$cases <- pp_check(fit_cases, nsamples = 300) + xlim(c(0,2e5)) + labs(title = " ")
 pp$deaths <- pp_check(fit_deaths, nsamples = 300) + xlim(c(0,3e3)) + labs(title = " ")
 pp %>% ggarrange(plotlist = ., nrow = 1, labels = "AUTO", common.legend = T, legend = "bottom")
-ggsave("plots/cvd19_pp_dens_2021_04_24.png") # Supp Fig XX
+#ggsave("plots/cvd19_pp_dens_2021_04_24.png") # Supp Fig XX
 
 # posterior predictive intervals
 
@@ -58,7 +58,8 @@ plot_pred <- function(model, xlabels = F){
     guides(color = guide_legend(nrow = 1, byrow = TRUE, title = NULL))
   
   if(!xlabels) p <- p + theme(axis.ticks.x = element_blank()) + scale_x_discrete(labels = NULL)
-  if(xlabels) p <- p + theme(axis.text.x = element_text(angle = 90, size = 7, hjust = 1) )
+  if(xlabels) p <- p + theme(axis.text.x = element_text(angle = 90, size = 6, hjust = 1, vjust = 0.5),
+                             panel.grid.major.x = element_line()) + scale_x_discrete(label=abbreviate)
   
   p
 }
@@ -68,12 +69,16 @@ ggarrange(plot_pred("cases") + labs(y = "log(cases)/million", x = NULL),
           plot_pred("deaths") + labs(y = "log(deaths)/million", 
                                      x = "Country (by increasing predicted response)"), nrow = 2,
           common.legend = T, legend = "bottom")
-ggsave("plots/cvd19_plot_pp_predict_2021_06_24.png")
+#ggsave("plots/cvd19_plot_pp_predict_2021_06_24.png")
 
 
 # with country labels for supplementary materials (unfinished)
-plot_pred("cases", xlabels = T) # need to abbreviate country names and possible split plot into two.
-plot_pred("deaths", xlabels = T)
+ggarrange(plot_pred("cases", xlabels = T) + labs(y = "log(cases)/million", x = NULL),
+          plot_pred("deaths", xlabels = T) + labs(y = "log(deaths)/million", 
+                                     x = "Country (by increasing predicted response)"), nrow = 2,
+          common.legend = T, legend = "bottom")
+#ggsave("plots/cvd19_plot_pp_predict_named_2021_07_01.png", width = 12, height = 8)
+
 
 
 # plot region-level shape estimates
@@ -98,8 +103,14 @@ plot_shape_est <- function(fit){
 ggarrange(plot_shape_est(fit_cases) + xlim(c(-2.1,3)),
           plot_shape_est(fit_deaths) + xlim(c(-2.1,3)) + labs(x = NULL), nrow = 1, labels= "AUTO")
 
-ggsave("plots/cvd19_shape_effects_2021_06_24.png", width = 6, height = 3)
+#ggsave("plots/cvd19_shape_effects_2021_06_24.png", width = 6, height = 3)
 
 
+# table of country abbreviations
+cvd19 %>% 
+  select(country, reg) %>% 
+  mutate(cntry = abbreviate(country)) %>% 
+  arrange(reg, cntry) %>% 
+  write_csv("plots/country_abbrv.csv")
 
 
