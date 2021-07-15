@@ -45,7 +45,7 @@ mu_hierachical_spline <- function(vars_num, vars_fac, k = 6, bas = "tp"){
 
 # brms fitting options
 future = F
-cores = 2
+cores = 4
 chains = 4
 iter = 6000
 control = list(adapt_delta = 0.9)
@@ -114,7 +114,7 @@ m1loo <-  loo(m1_full  )
 
 m2loo <-  loo(m2_full_WHO )
 
-m3loo <-  loo(m3_full_reducedSet )
+m3loo <-  loo(m4_reducedSet_WHO  )
 
 m4loo <-  loo(m4_reducedSetInSimp_WHO ) 
 
@@ -122,7 +122,7 @@ m5loo <-  loo(m5_reducedSetInSimp_WHO_highK  )
 
 m7loo <- loo(m7_reducedSet_hierachical)
 
-loo_compare( m4loo, m5loo, m7loo )
+loo_compare( m1loo, m2loo, m3loo )
 
 loo_moment_match(m7_reducedSet_hierachical, m7loo )
 
@@ -222,7 +222,7 @@ death_m4_spl.Reg_noCases <- as.formula(y ~ reg  + s(meanAge, k = 6, bs = "ts") +
 #--------------------------------------------------------
 # brms fitting options
 future = F
-cores = 3
+cores = 4
 chains = 4
 iter = 8000
 control = list(adapt_delta = 0.99)
@@ -295,8 +295,10 @@ lim_den <- quantile(cvd19deaths$popDen, 0.95)
 lim_spat <- quantile(cvd19deaths$spatLag, 0.95)
 # example plot of smooths
 #gg <- conditional_smooths(death_m1_full_gam_reduced_reg  , spaghetti = T, nsamples = 500, rug=T) #marginal is the same as conditional
-gg <- conditional_effects(multi_model , spaghetti = T, nsamples = 500)
+gg <- conditional_effects(multi_model, effect=c('cases') ,resp='deaths', spaghetti = T, nsamples = 500) #%>% plot()
+gg <- conditional_effects(multi_model,  spaghetti = T, nsamples = 500) #%>% plot()
 
+plot(gg)
 bayes_R2(case_FINAL)
 bayes_R2(death_m1_full_gam_reduced_reg)
 #gg<- conditional_effects(death_m1_full_gam_reduced_reg ,  int_conditions = list(reg = mean), select_points=10)
@@ -353,15 +355,15 @@ gridExtra::grid.arrange(a_plot, b_plot, c_plot, d_plot, e_plot,f_plot, g_plot, n
 gridExtra::grid.arrange(a_plot, b_plot, c_plot, d_plot, e_plot,f_plot,  nrow = 2)
   #geom_rug(data=data.frame(cvd19deaths$meanAge), sides="b") 
 
-death_m1_loo <- loo(death_m1_full_gam, moment_match = TRUE) 
-death_m1_loo_reg <- loo(death_m1_full_gam_reg, moment_match = TRUE) 
+death_m1_loo <- loo(death_m1_full_gam) 
+death_m1_loo_reg <- loo(death_m1_full_gam_reg) 
 death_m1_loo_reduced <- loo(death_m1_full_gam_reduced, moment_match = TRUE) 
-death_m1_loo_reduced_reg <- loo(death_m1_full_gam_reduced_reg, moment_match = TRUE) 
+death_m1_loo_reduced_reg <- loo(death_m1_full_gam_reduced_reg) 
 death_m1_loo_reduced_reg_by<- loo(death_m1_full_gam_reduced_reg_by, moment_match = TRUE)
 #need to set 'save_all_pars'
 plot(p)+theme_bw()
 
-loo_compare( death_m1_loo , death_m1_loo_reduced, death_m1_loo_reg, death_m1_loo_reduced_reg_by)
+loo_compare( death_m1_loo , death_m1_loo_reduced_reg, death_m1_loo_reg)
 
 f_epred <- case_FINAL  %>% rstantools::posterior_predict()
 colnames(f_epred) <- cvd19$country
