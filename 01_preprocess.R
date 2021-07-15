@@ -39,15 +39,9 @@ TotalDataNoNA$OOBerror
 
 interpData <- cbind(data.frame(TotalDataNoZeros[1:3]), TotalDataNoNA$ximp)
 
- interpData$latitude <- NULL
- interpData$longitude <- NULL #no need for coord data now
- 
-write.csv(interpData , "data/cvdDataPreprocessed", row.names=TRUE)
-
 #-----------------------------------------------------------------------------------
 #Check for correlations
 #-----------------------------------------------------------------------------------
-
 cvd19data <- read.csv('data/cvdDataPreprocessed', row.names=1)
 
 #check out correlations
@@ -60,8 +54,7 @@ cvd19dataNoCat <- Filter(is.numeric, cvd19data)
 
 ggcorr(cvd19dataNoCat[3:25], label = TRUE, label_size = 3,  hjust = 0.9, size = 3 ) #pearson correlations are default
 
-
-write.csv(interpData , "data/cvd19_2021_06_24", row.names=TRUE)
+write.csv(interpData , "data/cvdDataPreprocessed", row.names=TRUE)
 
 
 
