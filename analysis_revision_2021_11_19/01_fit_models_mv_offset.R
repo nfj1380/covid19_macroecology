@@ -17,7 +17,6 @@ cvd19_pre <- read_csv("data/cvd19_2021_06_24.csv") %>%
 pop <- read_csv("data/Pop_size_Data_WorldBank2.csv") %>% 
   rename(pop = Pop_size, country = Country)
 
-cvd19_pre$tests
 
 cvd19 <- left_join(cvd19_pre, pop, by = "country") %>% 
   mutate(cases = round(cases_per_mil*pop*(1e6)^-1,0),
@@ -60,7 +59,7 @@ run_date <- "2021_11_24"
 #---------------------------------------------------------
 
 # fit all vars to select best predictors: cases/deaths----
-if(T){
+if(F){
   resp  <- "deaths" # cases/deaths
   type <- "spline" # "spline" or "linear"
   message(paste0("Fitting model: ",resp))
@@ -83,17 +82,19 @@ if(T){
   }
 
 # fit cases submodel-------------------------------------
+# subset1: meanAge, HIV.AIDS, Ascariasis, rain, PerUrb, log_tests_pp, spatLag
 if(F){
   f_cases_mu <- cases | rate(pop) ~ 
     1 + 
     reg + 
     trans + 
-    s(HIV.AIDS, k = 6, bs = "ts") + 
-    s(Ascariasis, k = 6, bs = "ts") + 
-    s(Malaria, k = 6, bs = "ts") + 
-    s(PerUrb, k = 6, bs = "ts") + 
-    s(log_tests, k = 6, bs = "ts") + 
-    s(spatLag, k = 6, bs = "ts") 
+    s(meanAge, k = 6, bs = "tp") + 
+    s(HIV.AIDS, k = 6, bs = "tp") + 
+    s(Ascariasis, k = 6, bs = "tp") + 
+    s(rain, k = 6, bs = "tp") + 
+    s(PerUrb, k = 6, bs = "tp") + 
+    s(log_tests_pp, k = 6, bs = "tp") + 
+    s(spatLag, k = 6, bs = "tp") 
   
   f_shape <- shape ~ 1 + 1|reg
   
@@ -108,15 +109,11 @@ if(F){
                    iter = iter, 
                    thin = thin, 
                    seed = seed, 
-                   file = paste0("results/fit_cases_nb_sreg",run_date),
+                   file = paste0("results/fit_subset1_cases_tp_",run_date),
                    control = control)
   
-  fit_nb_sreg <- readRDS("results/fit_cases_nb_sreg2021_11_22.rds")
-  #fit_nb_s1 <- readRDS("results/fit_cases_nb_s12021_11_22.rds")
-  #fit_pois <- readRDS("results/fit_cases_pois2021_11_22.rds")
-  
-  loo_fits <- list(pois = fit_pois, nb_reg = fit_nb_sreg, nb_s1 = fit_nb_s1) %>% 
-    map(loo, cores = 20) %>% loo_compare()
+#  loo_fits <- list(pois = fit_pois, nb_reg = fit_nb_sreg, nb_s1 = fit_nb_s1) %>% 
+#    map(loo, cores = 20) %>% loo_compare()
   
   #model    elpd_diff  se_diff 
   #---------------------------
@@ -125,25 +122,27 @@ if(F){
   #pois   -6501154.9   842676.1
 }
 
-# fit deaths submodel------------------------------------
-if(F){
+#----- fit deaths submodel------------------------------------
+if(T){
   
-  # new shortlist
+  # subset1: 
   # meanAge, 
   
   f_deaths_mu <- deaths|rate(pop) ~ 
     1 + 
     reg + 
-    s(cases, k = 6, bs = "ts") + 
-    s(meanAge, k = 6, bs = "ts") + 
-    s(Malaria, k = 6, bs = "ts") + 
-    s(Trichuriasis, k = 6, bs = "ts") + 
-    s(popDen, k = 6, bs = "ts") + 
-    s(Hookworm, k = 6, bs = "ts") + 
-    s(spatLag, k = 6, bs = "ts") 
-    
+    s(log_prop_cases, k = 6, bs = "tp") + 
+    s(meanAge, k = 6, bs = "tp") + 
+    s(Malaria, k = 6, bs = "tp") + 
+    s(Trichuriasis, k = 6, bs = "tp") + 
+    s(HCexpend, k = 6, bs = "tp") + 
+    s(Hookworm, k = 6, bs = "tp") + 
+    s(Schistosomiasis, k = 6, bs = "tp") +
+    s(log_tests_pp, k = 6, bs = "tp") + 
+    s(spatLag, k = 6, bs = "tp") 
+  
     f_shape <- shape ~ 1 + 1|reg
-    
+  
     form_deaths <- bf(f_deaths_mu, f_shape) + negbinomial()
     
 # fit and save case models (< 6 mins)
@@ -155,9 +154,21 @@ fit_deaths <- brm(form_deaths,
                  iter = iter, 
                  thin = thin, 
                  seed = seed, 
-                 file = paste0("results/fit_deaths_nb_reg",run_date),
+                 file = paste0("results/fit_subset1_deaths_tp_",run_date),
                  control = control)
 
-fit_deaths <- readRDS("results/fit_deaths_nb_reg2021_11_22.rds") 
-fit_deaths %>% conditional_effects()
 }
+
+# Model comparison
+# sub1 vs full: comparable for cases, sub1 better for deaths
+if(F){
+  resp <- "deaths"
+  run_date <- "2021_11_24"
+  m.sub1 <- readRDS(paste0("results/fit_subset1_",resp,"_tp_",run_date,".rds"))
+  m.full <- readRDS(paste0("results/fit_vars_all_",resp,"_spline_",run_date,".rds"))
+  
+  m.loo <- loo::nlist(m.sub1,m.full) %>% map(loo, cores = 10)
+  m.loo %>% loo_compare
+}
+
+
