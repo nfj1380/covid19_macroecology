@@ -125,8 +125,7 @@ if(F){
 #----- fit deaths submodel------------------------------------
 if(T){
   
-  # subset1: 
-  # meanAge, 
+  # subset1: log_prop_cases, meanAge, Malaria, Trichuriasis, HCexpend, Hookworm, Schistosomiasis, log_tests_pp, spatLag 
   
   f_deaths_mu <- deaths|rate(pop) ~ 
     1 + 
