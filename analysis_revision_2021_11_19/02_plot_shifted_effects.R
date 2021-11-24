@@ -1,6 +1,7 @@
 library(tidyverse)
 library(pbmcapply)
 library(ggpubr)
+library(brms)
 
 rm(list=ls())
 
@@ -40,11 +41,19 @@ plot_ce <- function(fit, X, CI = 0.9, shift = T, n_points = 100, n_draws = 1000,
 
 
 resp <- "deaths"
-run_date <- "2021_11_22"
+run_date <- "2021_11_24"
 fit <- readRDS(paste0("results/fit_vars_all_",resp,"_spline_",run_date,".rds"))
+fit
+fit$data$reg %>% levels
+plot_ce(fit,"meanAge", CI = 0.9) 
 
-vars <- fit$data %>% select(where(is.numeric), -contains("cases"), -contains("deaths"), -pop) %>% names
+#fit %>% pp_check(ndraws = 200) + xlim(c(0,1.5e6))
+
+fit$data %>% select(where(is.numeric)) %>% names
+vars <- fit$data %>% select(where(is.numeric), -any_of(c("cases","deaths")), -pop) %>% names
 ce_plots <- pbmclapply(vars, function(X) plot_ce(fit,X), mc.cores = length(vars))
+
+
 
 
 main_plot <- ggarrange(plotlist = ce_plots, nrow = 7, ncol = 3) %>% 

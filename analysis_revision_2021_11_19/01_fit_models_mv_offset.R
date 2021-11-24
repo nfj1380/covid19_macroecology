@@ -17,20 +17,27 @@ cvd19_pre <- read_csv("data/cvd19_2021_06_24.csv") %>%
 pop <- read_csv("data/Pop_size_Data_WorldBank2.csv") %>% 
   rename(pop = Pop_size, country = Country)
 
+cvd19_pre$tests
+
 cvd19 <- left_join(cvd19_pre, pop, by = "country") %>% 
   mutate(cases = round(cases_per_mil*pop*(1e6)^-1,0),
          deaths = round(deaths_per_mil*pop*(1e6)^-1,0),
-         log_tests = log(tests),
+         log_tests_pp= log(tests/pop),
+         log_prop_cases = log(cases_per_mil/1e6),
          tests = NULL) %>% 
          mutate(across(where(is.character), as.factor))
+
 #---------------------------------------------------------
+
+#cvd19 %>% dplyr::select(where(is.numeric)) %>% cor %>% corrplot::corrplot()
 
 # prepare variables and formula constructors--------------
 vars_numeric <- cvd19 %>% 
   select(where(is.numeric), -contains("cases"),
-         -contains("deaths"), -pop, -invSimp) %>% names; vars_numeric
+         -contains("deaths"), -pop, -invSimp, -GDPpc, -IDBurd) %>% names; vars_numeric
 vars_factor <- cvd19 %>% select(where(is.factor), -country) %>% names; vars_factor
 
+# regional dependence: 
 mu_spline <- function(response, vars_num, vars_fac, k = 6, basis = "tp"){
   paste(response," | rate(pop) ~ 1 + ", paste(vars_fac, collapse = " + "), " + ", 
         paste0("s(",vars_num,", k = ", k,", bs = '", basis, "')", collapse = " + ")) %>% 
@@ -46,21 +53,23 @@ seed <- 768021 # sample(1e6,1)
 control = list(adapt_delta = 0.9)
 cores = 4
 chains = 4
-iter = 8000
-thin = 1 # to leave 1000 samples
+iter = 10000
+thin = 10 # to leave 1000 samples
 init_r = 0
-run_date <- "2021_11_22"
+run_date <- "2021_11_24"
 #---------------------------------------------------------
 
 # fit all vars to select best predictors: cases/deaths----
 if(T){
   resp  <- "deaths" # cases/deaths
   type <- "spline" # "spline" or "linear"
+  message(paste0("Fitting model: ",resp))
+  if(resp=="deaths") vars_numeric <- c("log_prop_cases",vars_numeric)
   f_mu <- mu_spline(resp,vars_numeric, vars_factor, k = 6, basis = "ts")
   if(type == "linear") f_mu <- mu_linear(resp, c(vars_factor, vars_numeric))
   f_shape <- shape ~ 1 + 1|reg
   f_model <- bf(f_mu,f_shape) + negbinomial(); f_model
-
+  f_mu
   brm(f_model, 
       data = cvd19, 
       cores = cores, 
@@ -71,12 +80,8 @@ if(T){
       seed = seed, 
       file = paste0("results/fit_vars_all_",resp,"_",type,"_",run_date),
       control = control)
-  
-  fit <- readRDS(paste0("results/fit_vars_all_",resp,"_",type,"_",run_date,".rds"))
-}
+  }
 
-
-fit %>% conditional_effects()
 # fit cases submodel-------------------------------------
 if(F){
   f_cases_mu <- cases | rate(pop) ~ 
@@ -122,6 +127,9 @@ if(F){
 
 # fit deaths submodel------------------------------------
 if(F){
+  
+  # new shortlist
+  # meanAge, 
   
   f_deaths_mu <- deaths|rate(pop) ~ 
     1 + 
