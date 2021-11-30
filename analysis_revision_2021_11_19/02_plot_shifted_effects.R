@@ -47,8 +47,8 @@ plot_ce <- function(fit, X, CI = 0.9, shift = T, n_points = 100, n_draws = 1000,
 }
 
 
-resp <- "deaths"
-run_date <- "2021_11_24"
+resp <- "cases"
+run_date <- "2021_11_29"
 fit <- readRDS(paste0("results/fit_vars_all_",resp,"_spline_",run_date,".rds"))
 fit <- readRDS(paste0("results/fit_subset1_",resp,"_tp_",run_date,".rds"))
 fit
@@ -56,7 +56,7 @@ fit
 
 vars <- fit$data %>% select(where(is.numeric), -any_of(c("cases","deaths")), -pop) %>% names
 
-plot_ce(fit, "meanAge")
+plot_ce(fit_cases, "Hookworm")
 
 ce_plots <- pbmclapply(vars, function(X) plot_ce(fit,X), mc.cores = length(vars))
 ce_plots[[10]]
