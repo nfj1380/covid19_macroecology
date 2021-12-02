@@ -14,7 +14,8 @@ completed_covid_Data <- complete(cvd19_imputed ,1)
 
 cvd19 <- completed_covid_Data  %>% 
   mutate(log_tests_pp= log(Tested_1July2021_cumulative)) %>% 
-  mutate(across(where(is.character), as.factor)) 
+  mutate(across(where(is.character), as.factor)) %>% 
+  mutate(log_prop_cases = log(cases))
 
 #India data is too small for missForest
 
@@ -64,13 +65,14 @@ cvd19_noNA$lag_rate<-lag.listw(x=spatL, var=(cvd19_noNA$cases))
 # sampler settings----------------------------------------
 seed <- 768021 # sample(1e6,1)
 control = list(adapt_delta = 0.9)
-cores = 4
+cores = 1
 chains = 4
-iter = 10000
+iter = 10000 #10000 is enough for the case model
 thin = 10 # to leave 1000 samples
 init_r = 0
-run_date <- "2021_12_01"
+run_date <- "2021_12_01f"
 #---------------------------------------------------------
+############CASE MODEL############
 
 f_cases_mu <- cases|rate(pop) ~ 1+
   s(HIV, k = 6, bs = "tp") + 
@@ -79,14 +81,15 @@ f_cases_mu <- cases|rate(pop) ~ 1+
   s(log_tests_pp, k = 6, bs = "tp") + 
   s(lag_rate, k = 6, bs = "tp") 
 
+f_shape <- shape ~ 1
 #not enough data for mean age - missing 15 states
 
-form_cases <- bf(f_cases_mu) + negbinomial()
+form_cases <- bf(f_cases_mu, f_shape) + negbinomial()
 
 
 # fit and save case models (< 3 mins)
 fit_cases <- brm(form_cases, 
-                 data = cvd19_noNA, 
+                 data = cvd19, 
                  cores = cores, 
                  chains = chains,
                  init_r = init_r, 
@@ -96,8 +99,52 @@ fit_cases <- brm(form_cases,
                  file = paste0("results/fit_cases_India",run_date),
                  control = control)
 
+summary(fit_cases)
+
+resp <- "cases"
+
 plot_ce(fit_cases, "Ascariasis")
-plot_ce(fit_cases, "Malaria")
 plot_ce(fit_cases, "urban")
-plot_ce(fit_cases, "Trichuriasis")
-plot_ce(fit_cases, "HIV")
+
+plot_ce(fit_cases, "log_tests_pp")
+plot_ce(fit_cases, "lag_rate")
+#---------------------------------------------------------
+############DEATH MODEL############
+
+
+f_deaths_mu <- deaths|rate(pop) ~ 1+
+  s(log_prop_cases, k = 6, bs = "tp")+
+  s(Malaria, k = 6, bs = "tp") + 
+  s(Trichuriasis , k = 6, bs = "tp") + 
+  s(Hookworm, k = 6, bs = "tp") + 
+  s(log_tests_pp, k = 6, bs = "tp") + 
+  s(lag_rate, k = 6, bs = "tp")
+
+f_shape <- shape ~ 1
+#not enough data for mean age - missing 15 states
+
+form_deaths <- bf(f_deaths_mu, f_shape) + negbinomial()
+
+run_date <- "2021_12_01j"
+
+# fit and save case models (< 3 mins)
+fit_deaths <- brm(form_deaths, 
+                 data = cvd19, #not imputed data
+                 cores = cores, 
+                 chains = chains,
+                 init_r = init_r, 
+                 iter = iter, 
+                 thin = thin, 
+                 seed = seed, 
+                 file = paste0("results/fit_deaths_India",run_date),
+                 control = control)
+#readRDS()
+summary(fit_deaths)
+
+resp <- "deaths"
+
+plot_ce(fit_deaths, "Malaria")
+plot_ce(fit_deaths, "Hookworm")
+plot_ce(fit_deaths, "Trichuriasis")
+plot_ce(fit_deaths, "log_prop_cases")
+plot_ce(fit_deaths, "lag_rate")
