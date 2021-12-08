@@ -12,10 +12,10 @@ cvd19_india$Province_State <-str_replace(cvd19_india$Province_State, " ", "_")
 cvd19_imputed <- mice::mice(cvd19_india ,m=5,maxit=50,method = "cart",seed=500)
 completed_covid_Data <- complete(cvd19_imputed ,1)
 
-cvd19 <- completed_covid_Data  %>% 
+cvd19Ind <- completed_covid_Data  %>% 
   mutate(log_tests_pp= log(Tested_1July2021_cumulative)) %>% 
   mutate(across(where(is.character), as.factor)) %>% 
-  mutate(log_prop_cases = log(cases))
+  mutate(log_healthcare = log(Health_expenditure))#needs to be scaled
 
 #India data is too small for missForest
 
@@ -26,35 +26,41 @@ cvd19 <- completed_covid_Data  %>%
 #create a lag variable to account for neighbouring cases
 #-----------------------------------------------------------------------------------
 
-India_Spatial <- cvd19
+India_Spatial <- cvd19Ind
 coordinates(India_Spatial ) <- ~Lat+Long
 
 nb <- tri2nb(India_Spatial  ) #create neighbour list 
 spatL <- nb2listw(nb)
 plot(nb, coordinates(India_Spatial ))
 
-cvd19$lag_rate<-lag.listw(x=spatL, var=(cvd19$cases))
+cvd19Ind$lag_rate<-lag.listw(x=spatL, var=(cvd19Ind$cases))
 
 #---------------------------------------------------------
 #could imputation have an effect?
 
-complete_cvd19 <- cvd19_india[complete.cases(cvd19_india),]
+# complete_cvd19 <- cvd19_india[complete.cases(cvd19_india),]
+# 
+# cvd19_noNA <- complete_cvd19  %>% 
+#   mutate(log_tests_pp= log(Tested_1July2021_cumulative)) %>% 
+#   mutate(across(where(is.character), as.factor))
+# 
+# India_Spatial_noNA <- cvd19_noNA
+# coordinates(India_Spatial_noNA) <- ~Lat+Long
+# nb <- tri2nb(India_Spatial_noNA  ) #create neighbour list 
+# spatL <- nb2listw(nb)
+# plot(nb, coordinates(India_Spatial_noNA ))
+# cvd19_noNA$lag_rate<-lag.listw(x=spatL, var=(cvd19_noNA$cases))
 
-cvd19_noNA <- complete_cvd19  %>% 
-  mutate(log_tests_pp= log(Tested_1July2021_cumulative)) %>% 
-  mutate(across(where(is.character), as.factor))
+# Data exploration
 
-India_Spatial_noNA <- cvd19_noNA
-coordinates(India_Spatial_noNA) <- ~Lat+Long
-nb <- tri2nb(India_Spatial_noNA  ) #create neighbour list 
-spatL <- nb2listw(nb)
-plot(nb, coordinates(India_Spatial_noNA ))
-cvd19_noNA$lag_rate<-lag.listw(x=spatL, var=(cvd19_noNA$cases))
+#DataExplorer::create_report(cvd19_noNA)
 
+# ggplot(cvd19_noNA, aes(y=log(deaths), x=Ascariasis))+
+#   geom_point()
 #tv<- lm(cases~Malaria, data=complete_cvd19)
 #summary(tv)
 
-#corrS <- cvd19 %>% dplyr::select(where(is.numeric)) %>% cor %>% corrplot::corrplot()
+#corrS <- cvd19Ind %>% dplyr::select(where(is.numeric)) %>% cor %>% corrplot::corrplot()
 # 
 # # prepare variables and formula constructors--------------
 # vars_numeric <- cvd19 %>% 
@@ -65,21 +71,22 @@ cvd19_noNA$lag_rate<-lag.listw(x=spatL, var=(cvd19_noNA$cases))
 # sampler settings----------------------------------------
 seed <- 768021 # sample(1e6,1)
 control = list(adapt_delta = 0.9)
-cores = 1
+cores = 4
 chains = 4
-iter = 10000 #10000 is enough for the case model
+iter = 20000
 thin = 10 # to leave 1000 samples
 init_r = 0
-run_date <- "2021_12_01f"
+run_date <- "2021_12_07_Final"
 #---------------------------------------------------------
 ############CASE MODEL############
 
 f_cases_mu <- cases|rate(pop) ~ 1+
-  s(HIV, k = 6, bs = "tp") + 
+  #s(HIV, k = 6, bs = "tp") + prevalence too low (< 1%)
   s(Ascariasis, k = 6, bs = "tp") + 
   s(urban, k = 6, bs = "tp") + 
   s(log_tests_pp, k = 6, bs = "tp") + 
-  s(lag_rate, k = 6, bs = "tp") 
+  s(lag_rate, k = 6, bs = "tp") + 
+  s(Mean_age, k = 6, bs = "tp")
 
 f_shape <- shape ~ 1
 #not enough data for mean age - missing 15 states
@@ -89,7 +96,7 @@ form_cases <- bf(f_cases_mu, f_shape) + negbinomial()
 
 # fit and save case models (< 3 mins)
 fit_cases <- brm(form_cases, 
-                 data = cvd19, 
+                 data = cvd19_noNA, 
                  cores = cores, 
                  chains = chains,
                  init_r = init_r, 
@@ -104,32 +111,32 @@ summary(fit_cases)
 resp <- "cases"
 
 plot_ce(fit_cases, "Ascariasis")
-plot_ce(fit_cases, "urban")
 
-plot_ce(fit_cases, "log_tests_pp")
-plot_ce(fit_cases, "lag_rate")
+
 #---------------------------------------------------------
 ############DEATH MODEL############
 
-
 f_deaths_mu <- deaths|rate(pop) ~ 1+
-  s(log_prop_cases, k = 6, bs = "tp")+
-  s(Malaria, k = 6, bs = "tp") + 
+  cases+ #doesn't seem to like this
+ # s(Malaria, k = 6, bs = "tp") + 
   s(Trichuriasis , k = 6, bs = "tp") + 
-  s(Hookworm, k = 6, bs = "tp") + 
+  #s(Hookworm, k = 6, bs = "tp") + 
   s(log_tests_pp, k = 6, bs = "tp") + 
-  s(lag_rate, k = 6, bs = "tp")
+  s(lag_rate, k = 6, bs = "tp")  + 
+ # s(log_healthcare , k = 6, bs = "tp")+ 
+  s(Mean_age , k = 6, bs = "tp")
+
 
 f_shape <- shape ~ 1
 #not enough data for mean age - missing 15 states
 
 form_deaths <- bf(f_deaths_mu, f_shape) + negbinomial()
 
-run_date <- "2021_12_01j"
+run_date <- "2021_12_08_test3"
 
 # fit and save case models (< 3 mins)
 fit_deaths <- brm(form_deaths, 
-                 data = cvd19, #not imputed data
+                 data = cvd19Ind, 
                  cores = cores, 
                  chains = chains,
                  init_r = init_r, 
@@ -138,7 +145,7 @@ fit_deaths <- brm(form_deaths,
                  seed = seed, 
                  file = paste0("results/fit_deaths_India",run_date),
                  control = control)
-#readRDS()
+
 summary(fit_deaths)
 
 resp <- "deaths"
@@ -146,5 +153,4 @@ resp <- "deaths"
 plot_ce(fit_deaths, "Malaria")
 plot_ce(fit_deaths, "Hookworm")
 plot_ce(fit_deaths, "Trichuriasis")
-plot_ce(fit_deaths, "log_prop_cases")
-plot_ce(fit_deaths, "lag_rate")
+
