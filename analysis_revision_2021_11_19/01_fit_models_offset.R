@@ -52,23 +52,25 @@ seed <- 768021 # sample(1e6,1)
 control = list(adapt_delta = 0.9)
 cores = 4
 chains = 4
-iter = 10000
-thin = 10 # to leave 1000 samples
+iter = 4000
+thin = 8 # to leave 1000 samples
 init_r = 0
-run_date <- "2021_11_24"
+run_date <- "2022_03_21"
 #---------------------------------------------------------
 
 # fit all vars to select best predictors: cases/deaths----
 if(F){
   resp  <- "deaths" # cases/deaths
   type <- "spline" # "spline" or "linear"
-  message(paste0("Fitting model: ",resp))
+  shape <- "1" # "1" or "reg"
+  message(paste("Fitting model: ",resp, type, shape))
   if(resp=="deaths") vars_numeric <- c("log_prop_cases",vars_numeric)
   f_mu <- mu_spline(resp,vars_numeric, vars_factor, k = 6, basis = "ts")
   if(type == "linear") f_mu <- mu_linear(resp, c(vars_factor, vars_numeric))
-  f_shape <- shape ~ 1 + 1|reg
+  f_shape <- shape ~ 1 
+  if(shape == "reg") f_shape <- shape ~ 1 + 1|reg
   f_model <- bf(f_mu,f_shape) + negbinomial(); f_model
-  f_mu
+  
   brm(f_model, 
       data = cvd19, 
       cores = cores, 
@@ -77,13 +79,15 @@ if(F){
       iter = iter, 
       thin = thin, 
       seed = seed, 
-      file = paste0("results/fit_vars_all_",resp,"_",type,"_",run_date),
+      file = paste0("results/fit_all_",resp,"_s",shape,"_",run_date),
       control = control)
   }
 
 # fit cases submodel-------------------------------------
 # subset1: meanAge, HIV.AIDS, Ascariasis, rain, PerUrb, log_tests_pp, spatLag
 if(F){
+  resp <- "cases"
+  shape <- "reg" # "1" or "reg"
   f_cases_mu <- cases | rate(pop) ~ 
     1 + 
     reg + 
@@ -96,9 +100,12 @@ if(F){
     s(log_tests_pp, k = 6, bs = "tp") + 
     s(spatLag, k = 6, bs = "tp") 
   
-  f_shape <- shape ~ 1 + 1|reg
+  f_shape <- shape ~ 1 
+  if(shape == "reg") f_shape <- shape ~ 1 + 1|reg
   
-  form_cases <- bf(f_cases_mu,f_shape) + negbinomial(); form_cases
+  #form_cases <- bf(f_cases_mu,f_shape) + negbinomial() # nb: negbinomial()
+  form_cases <- bf(f_cases_mu) + poisson()  # pois: poisson()
+  form_cases
   
   # fit and save case models (< 3 mins)
   fit_cases <- brm(form_cases, 
@@ -109,7 +116,7 @@ if(F){
                    iter = iter, 
                    thin = thin, 
                    seed = seed, 
-                   file = paste0("results/fit_subset1_cases_tp_",run_date),
+                   file = paste0("results/fit_subset1_",resp,"_s",shape,"_",run_date),
                    control = control)
   
 #  loo_fits <- list(pois = fit_pois, nb_reg = fit_nb_sreg, nb_s1 = fit_nb_s1) %>% 
@@ -122,10 +129,25 @@ if(F){
   #pois   -6501154.9   842676.1
 }
 
+## loo for cases models
+if(F){
+  m.all_cases_sreg <- readRDS("results/fit_all_cases_sreg_2022_03_21.rds")
+  m.all_cases_s1 <- readRDS("results/fit_all_cases_s1_2022_03_21.rds")
+  m.sub_cases_sreg <- readRDS("results/fit_subset1_cases_tp_nb_sreg2022_03_21.rds")
+  
+  future::plan("multisession", workers = 21)
+  m.all_cases_sreg %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_all_cases_sreg.rds") # 40 refits
+  m.all_cases_s1 %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_all_cases_s1.rds") # 41 refits
+  #m.sub_cases_sreg %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_subset1_cases_sreg.rds") # 20 refits
+
+}
+
+
 #----- fit deaths submodel------------------------------------
 if(T){
-  
   # subset1: log_prop_cases, meanAge, Malaria, Trichuriasis, HCexpend, Hookworm, Schistosomiasis, log_tests_pp, spatLag 
+  resp <- "deaths"
+  shape <- "reg" # "1" or "reg"
   
   f_deaths_mu <- deaths|rate(pop) ~ 
     1 + 
@@ -144,8 +166,8 @@ if(T){
   
     form_deaths <- bf(f_deaths_mu, f_shape) + negbinomial()
     
-# fit and save case models (< 6 mins)
-fit_deaths <- brm(form_deaths, 
+    # fit and save deaths models (< 6 mins)
+    fit_deaths <- brm(form_deaths, 
                  data = cvd19, 
                  cores = cores, 
                  chains = chains,
@@ -153,21 +175,24 @@ fit_deaths <- brm(form_deaths,
                  iter = iter, 
                  thin = thin, 
                  seed = seed, 
-                 file = paste0("results/fit_subset1_deaths_tp_",run_date),
+                 file = paste0("results/fit_subset1_",resp,"_s",shape,"_",run_date),
                  control = control)
-
 }
 
 # Model comparison
 # sub1 vs full: comparable for cases, sub1 better for deaths
 if(F){
-  resp <- "deaths"
-  run_date <- "2021_11_24"
-  m.sub1 <- readRDS(paste0("results/fit_subset1_",resp,"_tp_",run_date,".rds"))
-  m.full <- readRDS(paste0("results/fit_vars_all_",resp,"_spline_",run_date,".rds"))
-  
-  m.loo <- loo::nlist(m.sub1,m.full) %>% map(loo, cores = 10)
-  m.loo %>% loo_compare
+  if(F){
+    m.all_deaths_sreg <- readRDS("results/fit_all_deaths_sreg_2022_03_21.rds")
+    m.all_deaths_s1 <- readRDS("results/fit_all_deaths_s1_2022_03_21.rds")
+    m.sub_deaths_sreg <- readRDS("results/fit_subset1_deaths_sreg_2022_03_21.rds")
+    
+    future::plan("multisession", workers = 22)
+    m.all_deaths_sreg %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_all_deaths_sreg.rds") # 43 refits
+    m.all_deaths_s1 %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_all_deaths_s1.rds") # 163 refits
+    m.sub_deaths_sreg %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_subset1_deaths_sreg.rds") # 30 refits
+    
+  }
 }
 
 

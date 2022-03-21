@@ -2,6 +2,8 @@ pacman::p_load("tidyverse","brms", 'sp', 'spdep', 'spatialreg')
 
 rm(list=ls())
 
+theme_set(theme_classic())
+
 # load and prepare data set-------------------------------
 cvd19_india <- read_csv("data/India_covid19.csv") %>% 
   rename(cases = Cases_1July2021_cumulative, deaths = Deaths_1July2021_cumulative,
@@ -9,8 +11,92 @@ cvd19_india <- read_csv("data/India_covid19.csv") %>%
   
 cvd19_india$Province_State <-str_replace(cvd19_india$Province_State, " ", "_")
 
-cvd19_imputed <- mice::mice(cvd19_india ,m=5,maxit=50,method = "cart",seed=500)
-completed_covid_Data <- complete(cvd19_imputed ,1)
+
+# impute 10 data sets
+cvd19_imputed <- mice::mice(cvd19_india ,m=10,maxit=50,method = "cart",seed=500)
+
+# transform data and add spatial lag
+cvd19_imp <- 
+    mice::complete(cvd19_imputed ,"all") %>% 
+      map(~ .x %>%# transform variables
+              mutate(log_tests_pp= log(Tested_1July2021_cumulative)) %>% 
+              mutate(across(where(is.character), as.factor)) %>% 
+              mutate(log_healthcare = log(Health_expenditure))) %>% 
+      map(function(df){ # compute and add spatial lag
+        df_spat <- df
+        coordinates(df_spat) <- ~Lat+Long
+        nb <- tri2nb(df_spat)
+        spatL <- nb2listw(nb)
+        df$lag_rate<-lag.listw(x=spatL, var=(df$cases))
+        return(df)
+      })
+
+
+# sampler settings----------------------------------------
+seed <- 768021 # sample(1e6,1)
+control = list(adapt_delta = 0.95)
+cores = 1
+chains = 4
+iter = 20000
+thin = 0.5*iter*chains/1000 # to leave 1000 samples
+init_r = 0
+run_date <- "2022_03_21"
+#---------------------------------------------------------
+
+
+# cases submodel
+f_cases_mu <- cases|rate(pop) ~ 1+
+  #s(HIV, k = 6, bs = "tp") + prevalence too low (< 1%)
+  s(Ascariasis, k = 5, bs = "tp") + 
+  s(urban, k = 5, bs = "tp") + 
+  s(log_tests_pp, k = 5, bs = "tp") + 
+  s(lag_rate, k = 5, bs = "tp") + 
+  s(Mean_age, k = 5, bs = "tp")
+
+
+f_shape <- shape ~ 1
+#not enough data for mean age - missing 15 states
+
+form_cases <- bf(f_cases_mu, f_shape) + negbinomial()
+form_cases
+future::plan("multisession", workers = 20)
+
+# fit and save case models
+fit_cases <- brm_multiple(form_cases, 
+                 data = cvd19_imp, # list of imputed data sets
+                 combine = FALSE, # combine posteriors
+                 future = TRUE, 
+                 chains = chains,
+                 init_r = init_r, 
+                 iter = iter, 
+                 thin = thin, 
+                 seed = seed, 
+                 #file = paste0("results/fit_cases_India_imp_",run_date),
+                 control = control)
+
+#saveRDS(fit_cases,"results/old_fits/fit_cases_mi_separate_2022_03_21.rds")
+
+cases_comb <- combine_models(mlist = fit_cases, check_data = F)
+
+cases_comb %>% conditional_effects("Ascariasis")
+
+resp <- "cases"
+for(x in c("Ascariasis","urban","log_tests_pp","lag_rate","Mean_age")){
+  fit_cases %>% 
+    map(~.x %>% plot_ce(x)) %>% 
+    ggpubr::ggarrange(plotlist = .) %>% 
+    ggsave(paste0("plots/ce_mi_",x,".pdf"), plot = .)
+}
+
+c("Ascariasis","urban","log_tests_pp","lag_rate","Mean_age") %>% 
+  map(~ plot_ce(cases_comb, .x)) %>% ggpubr::ggarrange(plotlist = .) %>% 
+  ggsave("plots/ce_mi_combined.pdf",plot = .)
+
+
+
+if(F){
+
+completed_covid_Data <- mice::complete(cvd19_imputed ,1)
 
 cvd19Ind <- completed_covid_Data  %>% 
   mutate(log_tests_pp= log(Tested_1July2021_cumulative)) %>% 
@@ -67,6 +153,9 @@ cvd19Ind$lag_rate<-lag.listw(x=spatL, var=(cvd19Ind$cases))
 #   select(where(is.numeric), -contains("cases"),
 #          -contains("deaths"), -Lat, -Long, -Tested_1July2021_cumulative) %>% names; vars_numeric
 # # 
+
+
+
 
 # sampler settings----------------------------------------
 seed <- 768021 # sample(1e6,1)
@@ -153,4 +242,4 @@ resp <- "deaths"
 plot_ce(fit_deaths, "Malaria")
 plot_ce(fit_deaths, "Hookworm")
 plot_ce(fit_deaths, "Trichuriasis")
-
+}
