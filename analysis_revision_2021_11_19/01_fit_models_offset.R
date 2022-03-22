@@ -119,14 +119,6 @@ if(F){
                    file = paste0("results/fit_subset1_",resp,"_s",shape,"_",run_date),
                    control = control)
   
-#  loo_fits <- list(pois = fit_pois, nb_reg = fit_nb_sreg, nb_s1 = fit_nb_s1) %>% 
-#    map(loo, cores = 20) %>% loo_compare()
-  
-  #model    elpd_diff  se_diff 
-  #---------------------------
-  #nb_reg        0.0        0.0   # nb a clear winner, good support for shape ~ 1 + 1|reg
-  #nb_s1       -33.3       22.4
-  #pois   -6501154.9   842676.1
 }
 
 ## loo for cases models
@@ -135,11 +127,20 @@ if(F){
   m.all_cases_s1 <- readRDS("results/fit_all_cases_s1_2022_03_21.rds")
   m.sub_cases_sreg <- readRDS("results/fit_subset1_cases_tp_nb_sreg2022_03_21.rds")
   
-  future::plan("multisession", workers = 21)
-  m.all_cases_sreg %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_all_cases_sreg.rds") # 40 refits
-  m.all_cases_s1 %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_all_cases_s1.rds") # 41 refits
+  #future::plan("multisession", workers = 21)
+  #m.all_cases_sreg %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_all_cases_sreg.rds") # 40 refits
+  #m.all_cases_s1 %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_all_cases_s1.rds") # 41 refits
   #m.sub_cases_sreg %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_subset1_cases_sreg.rds") # 20 refits
-
+  list(all_sreg = readRDS("results/loo_all_cases_sreg.rds"), 
+       all_s1 = readRDS("results/loo_all_cases_s1.rds"), 
+       sub_sreg = readRDS("results/loo_subset1_cases_sreg.rds")) %>%  
+  loo_compare()
+  
+  #           elpd_diff se_diff
+  # sub_sreg    0.0       0.0 
+  # all_s1    -62.1      30.9 
+  # all_sreg -127.2      73.1 
+  
 }
 
 
@@ -187,10 +188,20 @@ if(F){
     m.all_deaths_s1 <- readRDS("results/fit_all_deaths_s1_2022_03_21.rds")
     m.sub_deaths_sreg <- readRDS("results/fit_subset1_deaths_sreg_2022_03_21.rds")
     
-    future::plan("multisession", workers = 22)
-    m.all_deaths_sreg %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_all_deaths_sreg.rds") # 43 refits
-    m.all_deaths_s1 %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_all_deaths_s1.rds") # 163 refits
-    m.sub_deaths_sreg %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_subset1_deaths_sreg.rds") # 30 refits
+    #future::plan("multisession", workers = 22)
+    #m.all_deaths_sreg %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_all_deaths_sreg.rds") # 43 refits
+    #m.all_deaths_s1 %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_all_deaths_s1.rds") # 163 refits
+    #m.sub_deaths_sreg %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_subset1_deaths_sreg.rds") # 30 refits
+    
+    list(all_sreg = readRDS("results/loo_all_deaths_sreg.rds"), 
+         all_s1 = readRDS("results/loo_all_deaths_s1.rds"), 
+         sub_sreg = readRDS("results/loo_subset1_deaths_sreg.rds")) %>%  
+      loo_compare()
+    
+    #           elpd_diff se_diff
+    # sub_sreg    0.0       0.0 
+    # all_sreg  -34.6      55.4 
+    # all_s1   -131.8      61.1
     
   }
 }
