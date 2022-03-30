@@ -165,4 +165,7 @@ run_date <- "2022_03_30"
 resp <- "deaths"
 deaths_comb <- readRDS(paste0("results/fits_deaths_mi_combined_",run_date))
 deaths_comb %>% plot_ce("Malaria", exp = F)
+<<<<<<< HEAD:analysis_revision_2021_11_19/03_India_subModel.R
 ggsave(paste0("plots/deaths_India_Malaria_",run_date,".pdf"))
+=======
+>>>>>>> 43e1739e84db01ef41ecb4f689c2168f782a66c6:analysis_revision_2021_11_19/04_India_subModel.R
