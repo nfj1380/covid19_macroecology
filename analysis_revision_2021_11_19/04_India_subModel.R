@@ -55,7 +55,7 @@ run_date <- "2022_03_21"
 
 f_cases_mu <- cases|rate(pop) ~ 1+
   #s(HIV, k = 6, bs = "tp") + prevalence too low (< 1%)
-  s(Ascariasis, k = 5, bs = "tp") + 
+    s(Ascariasis, k = 5, bs = "tp") + 
   s(urban, k = 5, bs = "tp") + 
   s(log_tests_pp, k = 5, bs = "tp") + 
   s(lag_rate, k = 5, bs = "tp") + 
@@ -116,7 +116,7 @@ c("Ascariasis","urban","log_tests_pp","lag_rate","Mean_age") %>%
 #  s(lag_rate, k = 6, bs = "tp")  + 
 #  s(Mean_age , k = 6, bs = "tp")
 
-run_date <- "2022_03_29a"
+run_date <- "2022_03_30"
 
 f_deaths_mu <- deaths|rate(pop) ~ 1+ 
   s(log_cases , k = 4, bs = "tp") + 
@@ -150,29 +150,31 @@ fit_deaths <- brm_multiple(form_deaths,
 
 #saveRDS(fit_deaths,paste0("results/old_fits/fit_deaths_mi_separate_",run_date,".rds"))
 
+# deaths plots
+run_date <- "2022_03_30"
+#fit_deaths <- readRDS(paste0("results/old_fits/fit_deaths_mi_separate_",run_date,".rds"))
 deaths_comb <- combine_models(mlist = fit_deaths, check_data = F)
 
-deaths_comb
-fit_deaths
-
 vars_deaths <- c("log_cases","Malaria", "Trichuriasis","lag_rate","log_healthcare","Mean_age")
-
 resp <- "deaths"
 
+# plots for all predictors for all ten imputed data sets
 for(x in vars_deaths){
   fit_deaths %>% 
     map(~.x %>% plot_ce(x, exp = if_else(x == "log_cases",TRUE, FALSE))) %>% 
     ggpubr::ggarrange(plotlist = .) %>% 
-    ggsave(paste0("plots/deaths_ce_mi_",x,".pdf"), plot = .)
+    ggsave(paste0("plots/deaths_ce_mi_",x,"_",run_date,".pdf"), plot = .)
 }
 
+# plots for all predictors for the combined model
 vars_deaths %>% 
   map(~ plot_ce(deaths_comb, .x, exp = if_else(.x == "log_cases",TRUE, FALSE))) %>% 
   ggpubr::ggarrange(plotlist = .) %>% 
   ggsave(paste0("plots/deaths_ce_mi_combined_",run_date,".pdf"),plot = .)
 
-deaths_comb %>% plot_ce("log_cases", exp = T)
-
+# plot for Malaria for combined model
+deaths_comb <- readRDS(paste0("results/fits_deaths_mi_combined_",run_date))
+deaths_comb %>% plot_ce("Malaria", exp = F)
 
 
 if(F){
