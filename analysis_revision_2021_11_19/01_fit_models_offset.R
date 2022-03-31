@@ -46,16 +46,16 @@ mu_spline <- function(response, vars_num, vars_fac, k = 6, basis = "tp"){
 mu_linear <- function(response,vars) paste(response," | rate(pop) ~ 1 + ",paste(vars, collapse = " + ")) %>% as.formula()
 
 #---------------------------------------------------------
-
+mice::mice()
 # sampler settings----------------------------------------
 seed <- 768021 # sample(1e6,1)
 control = list(adapt_delta = 0.9)
 cores = 4
 chains = 4
-iter = 4000
+iter = 9000
 thin = 8 # to leave 1000 samples
 init_r = 0
-run_date <- "2022_03_21"
+run_date <- "2022_03_31"
 #---------------------------------------------------------
 
 # fit all vars to select best predictors: cases/deaths----
@@ -85,7 +85,7 @@ if(F){
 
 # fit cases submodel-------------------------------------
 # subset1: meanAge, HIV.AIDS, Ascariasis, rain, PerUrb, log_tests_pp, spatLag
-if(F){
+if(T){
   resp <- "cases"
   shape <- "reg" # "1" or "reg"
   f_cases_mu <- cases | rate(pop) ~ 
@@ -103,13 +103,18 @@ if(F){
   f_shape <- shape ~ 1 
   if(shape == "reg") f_shape <- shape ~ 1 + 1|reg
   
-  #form_cases <- bf(f_cases_mu,f_shape) + negbinomial() # nb: negbinomial()
-  form_cases <- bf(f_cases_mu) + poisson()  # pois: poisson()
+  form_cases <- bf(f_cases_mu,f_shape) + negbinomial() # nb: negbinomial()
+  #form_cases <- bf(f_cases_mu) + poisson()  # pois: poisson()
   form_cases
   
+  # try different values of the scale for the sds prior: 1,2.6(default),5,10 
+  #run_date <- "2022_03_31_sds2.6"
+  pr <- set_prior("student_t(3, 0, 2.6)", class = "sds")
+   
   # fit and save case models (< 3 mins)
   fit_cases <- brm(form_cases, 
                    data = cvd19, 
+                   prior = pr,
                    cores = cores, 
                    chains = chains,
                    init_r = init_r, 
@@ -143,9 +148,31 @@ if(F){
   
 }
 
+## compare sds priors for cases
+if(F){
+  # load fits with different sds priors
+  m <- list()
+  m[["s1"]] <- readRDS("results/fit_subset1_cases_sreg_2022_03_31_sds1.rds")
+  m[["s2.6"]] <- readRDS("results/fit_subset1_cases_sreg_2022_03_31_sds2.6.rds")
+  m[["s5"]] <- readRDS("results/fit_subset1_cases_sreg_2022_03_31_sds5.rds")
+  m[["s10"]] <- readRDS("results/fit_subset1_cases_sreg_2022_03_31_sds10.rds")
+  
+  source("00_functions.R")
+  theme_set(theme_classic())
+  
+  # no discernible differences in the estimated smooths for differing sds priors
+  c("meanAge","Ascariasis","rain","PerUrb","log_tests_pp","spatLag") %>% 
+    map(function(v){
+      m %>% imap(~.x %>% plot_ce(v)+ labs(subtitle = .y)) %>% ggpubr::ggarrange(plotlist = .,nrow = 1)
+    }) %>% ggpubr::ggarrange(plotlist = .,ncol = 1) %>% 
+    ggsave("cases_prior_comp.pdf", height = 15, width = 6, plot = .)
+    
+
+}
+
 
 #----- fit deaths submodel------------------------------------
-if(T){
+if(F){
   # subset1: log_prop_cases, meanAge, Malaria, Trichuriasis, HCexpend, Hookworm, Schistosomiasis, log_tests_pp, spatLag 
   resp <- "deaths"
   shape <- "reg" # "1" or "reg"
