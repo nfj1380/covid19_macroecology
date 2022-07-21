@@ -29,7 +29,7 @@ vars_numeric <- cvd19 %>% select(where(is.numeric), -pop,-contains(c("cases","de
   names; vars_numeric
 vars_factor <- cvd19 %>% select(!where(is.numeric), -country, -reg) %>% names; vars_factor
 
-vars_drop <- c("Ascariasis", "Malaria")
+vars_drop <- c("Ascariasis", "Malaria","HIV.AIDS")
 vars_endemic_drop <-  vars_endemic[!vars_endemic%in%vars_drop]
 
 # set sampler settings
@@ -70,11 +70,11 @@ if(F){
   
   # check convergence (Rhat<1.1): very good
   rhat(fit_cases) %>% max # 1.007
-  
-  ce_plots <- pbmclapply(vars_endemic, function(X) plot_ce(fit_cases,X,resp = "cases"), mc.cores = 11)
+
+  ce_plots <- pbmclapply(vars_numeric, function(X) plot_ce(fit_cases,X,resp = "cases",exp = ifelse(X=="log_pop",T,F)), mc.cores = 11)
   main_plot <- ggarrange(plotlist = ce_plots, nrow = 3, ncol = 4) %>% 
     annotate_figure(top = text_grob("cases", size = 16, face = "bold"), bottom = paste0("CI: 90%"))
-  ggsave(paste0("plots/ce_plots_cases_",mod,"_vars_endemic_2022_07_21.pdf"), width = 9, height = 9, device = cairo_pdf)
+  #ggsave(paste0("plots/ce_plots_cases_",mod,"_vars_numeric_2022_07_21.pdf"), width = 9, height = 9, device = cairo_pdf)
   
 }
 
@@ -83,7 +83,7 @@ if(F){
   resp <- "cases"
 
   f_cases_mu <- mu_spline(resp,vars_numeric, vars_factor, 
-                          vars_endemic[!vars_endemic%in%vars_drop])
+                          vars_endemic_drop)
   f_shape <- shape ~ 1 + (1|a|reg)
   form_cases <- bf(f_cases_mu,f_shape) + negbinomial(); form_cases
   
@@ -181,9 +181,9 @@ if(F){
 if(F){
   fit_ <- readRDS("results/fit_all_cases_2022_07_21.rds")
   pop_set <- cvd19$pop
-  pop_set <- 1e7
+  pop_set <- 1e6
   pp_raw <- posterior_predict(fit_, newdata = cvd19 %>% 
-                                mutate(log_tests = log((exp(log_tests)/pop)*pop_set), pop = pop_set)) %>% 
+                                mutate(log_tests = log((exp(log_tests)/pop)*pop_set), log_pop = log(pop_set))) %>% 
     as.data.frame()
   
   colnames(pp_raw) <- cvd19$country
@@ -220,13 +220,13 @@ if(F){
     theme(legend.position = "bottom", axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
     scale_color_brewer(type = "div", palette = "Dark2") +
     guides(color = guide_legend(nrow = 1, byrow = TRUE, title = NULL)) +
-    ylim(c(4,NA)) +
+    ylim(c(3,NA)) +
     labs(title = "Global cases", 
          subtitle = "Posterior predictive distribution",
          x = "Countries (ordered by region and predicted mean cases)",
-         y = "log(cases)")
+         y = "log(cases) per 1,000,000 people")
   
-  ggsave("plots/global_cases_ppd_2022_07_21.pdf", height = 6, width = 8)
+  #ggsave("plots/global_cases_ppd_perMillion_2022_07_21.pdf", height = 6, width = 8)
   
   
 }
