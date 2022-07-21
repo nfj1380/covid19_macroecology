@@ -62,7 +62,6 @@ if(F){
       control = control)
   }
 
-
 # inspect fits and plot conditional effects
 if(F){
   mod <- "all"
@@ -105,8 +104,6 @@ if(F){
                    control = control)
 }
 
-
-
 # loo for cases models
 if(F){
   fit_all_cases <- readRDS("results/fit_all_cases_2022_07_21.rds")
@@ -115,7 +112,7 @@ if(F){
   bayes_R2(fit_all_cases)
   bayes_R2(fit_submodel_cases)
 
-  future::plan("multisession", workers = 34)
+  future::plan("multisession", workers = 20)
   loo_all <- loo(fit_all_cases, future = T) # 17 problematic obs
   loo_sub <- loo(fit_submodel_cases, future = T) # 14 problematic obs
   loo_compare(loo_all,loo_sub)
@@ -184,9 +181,12 @@ if(F){
 if(F){
   fit_ <- readRDS("results/fit_all_cases_2022_07_21.rds")
   pop_set <- cvd19$pop
-  pp_raw <- posterior_predict(fit_) %>% as.data.frame()
-  colnames(pp_raw) <- cvd19$country
+  pop_set <- 1e7
+  pp_raw <- posterior_predict(fit_, newdata = cvd19 %>% 
+                                mutate(log_tests = log((exp(log_tests)/pop)*pop_set), pop = pop_set)) %>% 
+    as.data.frame()
   
+  colnames(pp_raw) <- cvd19$country
   pp_raw %>% 
     as_tibble() %>% 
     mutate(across(everything(),log)) %>% 
@@ -202,7 +202,8 @@ if(F){
               mean = median(y_pred, na.rm = F)
     ) %>% 
     left_join(cvd19 %>% select(country,y_obs = cases, reg, pop), by = "country") %>% 
-    mutate(q975 = pmin(q975,log(pop_set)),
+    mutate(y_obs = (y_obs/pop)*pop_set,
+           q975 = pmin(q975,log(pop_set)),
            q75 = pmin(q75,log(pop_set)),
            y_obs = log(y_obs)) %>% 
     #mutate(q975 = pmin(q975,log(pop)), y_obs = log(y_obs)) %>% 
@@ -216,10 +217,18 @@ if(F){
     #geom_line(aes(y = log(pop), group = reg), col = "green") +
     geom_point(aes(y = y_obs), size =0.7) +
     theme_classic() +
-    theme(legend.position = "top") +
+    theme(legend.position = "bottom", axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
     scale_color_brewer(type = "div", palette = "Dark2") +
     guides(color = guide_legend(nrow = 1, byrow = TRUE, title = NULL)) +
-    ylim(c(4,NA))
+    ylim(c(4,NA)) +
+    labs(title = "Global cases", 
+         subtitle = "Posterior predictive distribution",
+         x = "Countries (ordered by region and predicted mean cases)",
+         y = "log(cases)")
+  
+  ggsave("plots/global_cases_ppd_2022_07_21.pdf", height = 6, width = 8)
+  
+  
 }
 
 # loo-predictive distributions
