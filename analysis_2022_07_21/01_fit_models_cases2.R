@@ -7,84 +7,102 @@
 # smoothing penalty which is applied by default to the non-smooth terms.
 #-------------------------------------
 
-library(tidyverse)
+#library(tidyverse)
 library(brms)
+library(rstan)
 library(pbmcapply)
 library(ggpubr)
 library(loo)
+library(dplyr)
+library(readr)
+library(tidyr)
+library(purrr)
 rm(list=ls())
 
 nlist <- rstan::nlist
+theme_set(theme_classic())
 source("99_functions.R")
 
 # load data set and identify predictors
 cvd19 <- read_csv("data/cvd19_2022_07_04.csv")
-vars_numeric <- cvd19 %>% select(where(is.numeric), -pop,-contains(c("cases","death"))) %>% names; vars_numeric
+vars_endemic <- c("HIV.AIDS","Genital.herpes","Ascariasis","Malaria", "Trichuriasis","Tuberculosis",
+                  "Hookworm","Schistosomiasis","Lymphatic.filariasis"); vars_endemic
+vars_numeric <- cvd19 %>% select(where(is.numeric), -pop, -log_pop,-contains(c("cases","death")), -all_of(vars_endemic)) %>% 
+  names; vars_numeric
 vars_factor <- cvd19 %>% select(!where(is.numeric), -country, -reg) %>% names; vars_factor
 
+vars_drop <- c("Ascariasis", "Malaria","HIV.AIDS")
+vars_endemic_drop <-  vars_endemic[!vars_endemic%in%vars_drop]; vars_endemic_drop
+
 # set sampler settings
-seed <- 768021 # sample(1e6,1)
-control = list(adapt_delta = 0.9)
+seed <- 750122 # sample(1e6,1)
+control = list(adapt_delta = 0.95)
 cores = 4
 chains = 4
-iter = 2000
+iter = 3000
 thin = max(chains*iter/2000,1) # save a maximum of 1000 samples
 init_r = 0
-run_date <- "2022_07_01"
+run_date <- "2022_07_22"
 
-# fit global model and select best predictors via regularised estimates
+# fit global model
 if(F){
   resp  <- "cases" # cases/deaths
-  vars_no_end <- vars_numeric[!vars_numeric %in% c("Ascariasis", "Malaria")]
-  f_mu <- mu_spline(resp,vars_no_end, vars_factor, k = 6, basis = "ts")
+  f_mu <- mu_spline2(resp,vars_numeric, vars_factor, vars_endemic)
   f_shape <- shape ~ 1 + (1|a|reg)
   f_model <- bf(f_mu,f_shape) + negbinomial(); f_model
   
-  brm(f_model, 
-      data = cvd19, 
-      cores = cores, 
-      chains = chains,
-      init_r = init_r, 
-      iter = iter, 
-      thin = thin, 
-      seed = seed, 
-      file = paste0("results/fit_all_no_end_",resp,"_",run_date),
-      file_refit = "always",
-      control = control)
+  # N.B. brms-generated stan code must be modified manually to add a slope to the offset term
+  #make_stancode(f_model, cvd19) %>% cat(file = "m.offset.stan")
+  stan_data <- make_standata(f_model, cvd19)
+  stanvar(name = "log_beta", scode = "real log_beta", block = "parameters") + 
+    stanvar(name = "beta_denom", scode = "real[N] beta_denom", block = "tparameters") +
+    stanvar(scode = "beta_denom = ", block = "tparameters", position = "end")
+  
+  fit_stan <- stan("m.betaOffset.stan", 
+                   data = stan_data,
+                   cores = cores, 
+                   chains = chains,
+                   init_r = init_r, 
+                   iter = iter, 
+                   thin = thin, 
+                   seed = seed,
+                   control = control)
+  brm
+  rstantools::bayes_R2(fit_stan)
+  rstantools::posterior_predict
+  
+  saveRDS(fit_stan,paste0("results/fit2_all_",resp,"_",run_date))
+
   }
 
-# manually inspect fits
+# inspect fits and plot conditional effects
 if(F){
+  mod <- "all"
   theme_set(theme_classic())
-  fit_all_cases <- readRDS("results/fit_all_cases_2022_07_01.rds")
+  fit_cases <- readRDS(paste0("results/fit_",mod,"_cases_2022_07_21.rds"))
   
   # check convergence (Rhat<1.1): very good
-  rhat(fit_all_cases) %>% max # 1.007
-  
-  ce_plots <- pbmclapply(vars_numeric, function(X) plot_ce(fit_all_cases,X,resp = "cases"), mc.cores = 5)
-  main_plot <- ggarrange(plotlist = ce_plots, nrow = 4, ncol = 5) %>% 
+  rhat(fit_cases) %>% max # 1.007
+
+  ce_plots <- pbmclapply(vars_numeric, function(X) plot_ce(fit_cases,X,resp = "cases",exp = ifelse(X=="log_pop",T,F)), mc.cores = 11)
+  main_plot <- ggarrange(plotlist = ce_plots, nrow = 3, ncol = 4) %>% 
     annotate_figure(top = text_grob("cases", size = 16, face = "bold"), bottom = paste0("CI: 90%"))
-  ggsave("ce_plots_cases_all_vars_2022_07_04.pdf", width = 9, height = 9, device = cairo_pdf)
+  #ggsave(paste0("plots/ce_plots_cases_",mod,"_vars_numeric_2022_07_21.pdf"), width = 9, height = 9, device = cairo_pdf)
   
 }
 
 # fit cases submodel
 if(F){
   resp <- "cases"
-  drop_endemic <- T
-  vars_endemic <- c("Ascariasis", "Malaria")
-  vars_submodel <- c("meanAge", "HIV.AIDS", "PerUrb", "HCexpend", 
-                     "cardioDR", "spatLag", "log_tests", "log_pop")
-  if(!drop_endemic) vars_submodel <- c(vars_submodel,vars_endemic)
-  f_cases_mu <- mu_spline(resp,vars_submodel, vars_factor, k = 6, basis = "tp")
+
+  f_cases_mu <- mu_spline(resp,vars_numeric, vars_factor, 
+                          vars_endemic_drop)
   f_shape <- shape ~ 1 + (1|a|reg)
-  form_cases <- bf(f_cases_mu,f_shape) + negbinomial() 
+  form_cases <- bf(f_cases_mu,f_shape) + negbinomial(); form_cases
   
   # try different values of the scale for the sds prior: 1,2.6(default),5,10 
   pr <- set_prior("student_t(3, 0, 2.6)", class = "sds")
-   
-  if(drop_endemic) no_end <- "_no_end" else no_end <- ""
-  
+
   # fit and save case models (< 3 mins)
   fit_cases <- brm(form_cases, 
                    data = cvd19, 
@@ -95,46 +113,46 @@ if(F){
                    iter = iter, 
                    thin = thin, 
                    seed = seed, 
-                   file = paste0("results/fit_submodel_",resp,no_end,"_",run_date),
+                   file = paste0("results/fit_submodel2a_",resp,"_",run_date),
                    control = control)
 }
 
 # loo for cases models
 if(F){
-  fit_all_cases <- readRDS("results/fit_all_cases_2022_07_04.rds")
-  fit_all_cases$model
-  fit_all_cases_old <- readRDS("../analysis_revision_2021_11_19/results/fit_all_cases_sreg_2022_03_21.rds")
-  fit_sub_cases <- readRDS("results/fit_submodel_cases_2022_07_01.rds")
-  fit_sub_no_end_cases <- readRDS("results/fit_submodel_cases_no_end_2022_07_01.rds")
-  
-  bayes_R2(fit_all_cases_old)
-  bayes_R2(fit_all_cases)
-  bayes_R2(fit_sub_cases)
-  bayes_R2(fit_sub_no_end_cases)
-  loo_R2(fit_all_cases)
-  
-  
-  future::plan("multisession", workers = 11)
-  loo_all <- loo(fit_all_cases, future = T) # 11 problematic obs
-  loo_sub <- loo(fit_sub_cases, future = T) # 8 problematic obs
-  loo_sub_no_end <- loo(fit_sub_no_end_cases, future = T) #  problematic obs
-  loo_compare(loo_all,loo_sub,loo_sub_no_end)
-  
-  #m.all_cases_sreg %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_all_cases_sreg.rds") # 40 refits
-  #m.all_cases_s1 %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_all_cases_s1.rds") # 41 refits
-  #m.sub_cases_sreg %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_subset1_cases_sreg.rds") # 20 refits
-  list(all_sreg = readRDS("results/loo_all_cases_sreg.rds"), 
-       all_s1 = readRDS("results/loo_all_cases_s1.rds"), 
-       sub_sreg = readRDS("results/loo_subset1_cases_sreg.rds")) %>%  
-  loo_compare()
-  
-  #           elpd_diff se_diff
-  # sub_sreg    0.0       0.0 
-  # all_s1    -62.1      30.9 
-  # all_sreg -127.2      73.1 
-  
-}
+  fit_all_cases <- readRDS("results/fit_all_cases_2022_07_21.rds")
+  fit_submodel_cases <- readRDS("results/fit_submodel2a_cases_2022_07_21.rds")
 
+  bayes_R2(fit_all_cases)
+  bayes_R2(fit_submodel_cases)
+
+ 
+  future::plan("multisession", workers = 20)
+  loo_all <- loo(fit_all_cases, future = T) # 17 problematic obs
+  loo_sub <- loo(fit_submodel_cases, future = T) # 13 problematic obs
+  loo_compare(loo_all,loo_sub)
+  
+  future::plan("multisession", workers = 34)
+  #fit_all_cases %>% loo(reloo = T) %>% saveRDS("results/loo_all_cases_2022_07_21.rds") # 34 refits
+  #fit_submodel_cases %>% loo(reloo = T) %>% saveRDS("results/loo_submodel_cases_2022_07_21.rds") # 13 refits
+  loo_all <- readRDS("results/loo_all_cases_2022_07_21.rds")
+  loo_sub <- readRDS("results/loo_submodel_cases_2022_07_21.rds")
+  nlist(loo_all, loo_sub) %>% loo_compare()
+  
+  cvd19 %>% select(country, reg, Ascariasis, HIV.AIDS, Malaria) %>% 
+    mutate(loo_diff = -loo_all$pointwise[,1] + loo_sub$pointwise[,1]) %>% 
+    group_by(reg) %>% 
+    #filter(Ascariasis > 0.05 | HIV.AIDS >0.025 | Malaria > 0.05) %>% 
+    summarise(loo_diff_est = sum(loo_diff), loo_diff_sd = sd(loo_diff)*sqrt(n())) %>% 
+    mutate(sig = abs(loo_diff_est) > loo_diff_sd & loo_diff_est < 0) %>% 
+    ggplot(aes(x = reg)) +
+    geom_point(aes(y = loo_diff_est, col = sig), size = 3) +
+    geom_linerange(aes(ymin=loo_diff_est-loo_diff_sd, ymax=loo_diff_est+loo_diff_sd, col = sig)) +
+    geom_hline(aes(yintercept = 0)) +
+    labs(y = "LOO difference", title = "Cases: LOO scores by region")
+  
+  ggsave("plots/loo_cases_by_region.pdf")
+
+  }
 # conditional effects plots for submodel
 if(F){
   fit_ <- readRDS("results/fit_submodel_cases_2022_07_01.rds")
@@ -182,23 +200,14 @@ if(F){
 
 # posterior predictive distribution
 if(F){
-  fit_01 <- readRDS("results/fit_all_cases_2022_07_01.rds")
-  fit_04 <- readRDS("results/fit_all_cases_2022_07_04.rds")
-  
-  fit_04$model
-  fit_ <- readRDS("results/fit_all_cases_2022_07_01.rds")
-  fit_$model
-  pop_set <- 1e7
+  fit_ <- readRDS("results/fit_all_cases_2022_07_21.rds")
   pop_set <- cvd19$pop
-  
-  pp_raw <- posterior_predict(fit_,
-                              newdata = cvd19 %>% mutate(pop = pop_set),
-                              offset = T
-  ) %>% as.data.frame()
+  pop_set <- 1e6
+  pp_raw <- posterior_predict(fit_, newdata = cvd19 %>% 
+                                mutate(log_tests = log((exp(log_tests)/pop)*pop_set), log_pop = log(pop_set))) %>% 
+    as.data.frame()
   
   colnames(pp_raw) <- cvd19$country
-  
-  
   pp_raw %>% 
     as_tibble() %>% 
     mutate(across(everything(),log)) %>% 
@@ -214,7 +223,8 @@ if(F){
               mean = median(y_pred, na.rm = F)
     ) %>% 
     left_join(cvd19 %>% select(country,y_obs = cases, reg, pop), by = "country") %>% 
-    mutate(q975 = pmin(q975,log(pop_set)),
+    mutate(y_obs = (y_obs/pop)*pop_set,
+           q975 = pmin(q975,log(pop_set)),
            q75 = pmin(q75,log(pop_set)),
            y_obs = log(y_obs)) %>% 
     #mutate(q975 = pmin(q975,log(pop)), y_obs = log(y_obs)) %>% 
@@ -228,10 +238,18 @@ if(F){
     #geom_line(aes(y = log(pop), group = reg), col = "green") +
     geom_point(aes(y = y_obs), size =0.7) +
     theme_classic() +
-    theme(legend.position = "top") +
+    theme(legend.position = "bottom", axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
     scale_color_brewer(type = "div", palette = "Dark2") +
     guides(color = guide_legend(nrow = 1, byrow = TRUE, title = NULL)) +
-    ylim(c(4,NA))
+    ylim(c(3,NA)) +
+    labs(title = "Global cases", 
+         subtitle = "Posterior predictive distribution",
+         x = "Countries (ordered by region and predicted mean cases)",
+         y = "log(cases) per 1,000,000 people")
+  
+  #ggsave("plots/global_cases_ppd_perMillion_2022_07_21.pdf", height = 6, width = 8)
+  
+  
 }
 
 # loo-predictive distributions

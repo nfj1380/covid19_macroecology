@@ -19,25 +19,26 @@ library(purrr)
 rm(list=ls())
 
 nlist <- rstan::nlist
+theme_set(theme_classic())
 source("99_functions.R")
 
 # load data set and identify predictors
 cvd19 <- read_csv("data/cvd19_2022_07_04.csv")
 vars_endemic <- c("HIV.AIDS","Genital.herpes","Ascariasis","Malaria", "Trichuriasis","Tuberculosis",
                   "Hookworm","Schistosomiasis","Lymphatic.filariasis"); vars_endemic
-vars_numeric <- cvd19 %>% select(where(is.numeric), -pop,-contains(c("cases","death")), -all_of(vars_endemic)) %>% 
+vars_numeric <- cvd19 %>% select(where(is.numeric), -pop, -contains(c("cases","death")), -all_of(vars_endemic)) %>% 
   names; vars_numeric
 vars_factor <- cvd19 %>% select(!where(is.numeric), -country, -reg) %>% names; vars_factor
 
 vars_drop <- c("Ascariasis", "Malaria","HIV.AIDS")
-vars_endemic_drop <-  vars_endemic[!vars_endemic%in%vars_drop]
+vars_endemic_drop <-  vars_endemic[!vars_endemic%in%vars_drop]; vars_endemic_drop
 
 # set sampler settings
 seed <- 750122 # sample(1e6,1)
-control = list(adapt_delta = 0.9)
+control = list(adapt_delta = 0.95)
 cores = 4
 chains = 4
-iter = 2000
+iter = 3000
 thin = max(chains*iter/2000,1) # save a maximum of 1000 samples
 init_r = 0
 run_date <- "2022_07_21"
@@ -100,38 +101,46 @@ if(F){
                    iter = iter, 
                    thin = thin, 
                    seed = seed, 
-                   file = paste0("results/fit_submodel_",resp,"_",run_date),
+                   file = paste0("results/fit_submodel2a_",resp,"_",run_date),
                    control = control)
 }
 
 # loo for cases models
 if(F){
   fit_all_cases <- readRDS("results/fit_all_cases_2022_07_21.rds")
-  fit_submodel_cases <- readRDS("results/fit_submodel_cases_2022_07_21.rds")
+  fit_submodel_cases <- readRDS("results/fit_submodel2a_cases_2022_07_21.rds")
 
   bayes_R2(fit_all_cases)
   bayes_R2(fit_submodel_cases)
 
+ 
   future::plan("multisession", workers = 20)
   loo_all <- loo(fit_all_cases, future = T) # 17 problematic obs
-  loo_sub <- loo(fit_submodel_cases, future = T) # 14 problematic obs
+  loo_sub <- loo(fit_submodel_cases, future = T) # 13 problematic obs
   loo_compare(loo_all,loo_sub)
   
-  fit_all_cases %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_all_cases_2022_07_21.rds") # 40 refits
-  #m.all_cases_s1 %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_all_cases_s1.rds") # 41 refits
-  #m.sub_cases_sreg %>% loo(reloo = T, future = T) %>% saveRDS("results/loo_subset1_cases_sreg.rds") # 20 refits
-  list(all_sreg = readRDS("results/loo_all_cases_sreg.rds"), 
-       all_s1 = readRDS("results/loo_all_cases_s1.rds"), 
-       sub_sreg = readRDS("results/loo_subset1_cases_sreg.rds")) %>%  
-  loo_compare()
+  future::plan("multisession", workers = 34)
+  #fit_all_cases %>% loo(reloo = T) %>% saveRDS("results/loo_all_cases_2022_07_21.rds") # 34 refits
+  #fit_submodel_cases %>% loo(reloo = T) %>% saveRDS("results/loo_submodel_cases_2022_07_21.rds") # 13 refits
+  loo_all <- readRDS("results/loo_all_cases_2022_07_21.rds")
+  loo_sub <- readRDS("results/loo_submodel_cases_2022_07_21.rds")
+  nlist(loo_all, loo_sub) %>% loo_compare()
   
-  #           elpd_diff se_diff
-  # sub_sreg    0.0       0.0 
-  # all_s1    -62.1      30.9 
-  # all_sreg -127.2      73.1 
+  cvd19 %>% select(country, reg, Ascariasis, HIV.AIDS, Malaria) %>% 
+    mutate(loo_diff = -loo_all$pointwise[,1] + loo_sub$pointwise[,1]) %>% 
+    group_by(reg) %>% 
+    #filter(Ascariasis > 0.05 | HIV.AIDS >0.025 | Malaria > 0.05) %>% 
+    summarise(loo_diff_est = sum(loo_diff), loo_diff_sd = sd(loo_diff)*sqrt(n())) %>% 
+    mutate(sig = abs(loo_diff_est) > loo_diff_sd & loo_diff_est < 0) %>% 
+    ggplot(aes(x = reg)) +
+    geom_point(aes(y = loo_diff_est, col = sig), size = 3) +
+    geom_linerange(aes(ymin=loo_diff_est-loo_diff_sd, ymax=loo_diff_est+loo_diff_sd, col = sig)) +
+    geom_hline(aes(yintercept = 0)) +
+    labs(y = "LOO difference", title = "Cases: LOO scores by region")
   
-}
+  ggsave("plots/loo_cases_by_region.pdf")
 
+  }
 # conditional effects plots for submodel
 if(F){
   fit_ <- readRDS("results/fit_submodel_cases_2022_07_01.rds")

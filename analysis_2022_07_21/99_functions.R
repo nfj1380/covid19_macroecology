@@ -1,14 +1,19 @@
 
 # construct spline-based model formula for the mean
-mu_spline <- function(response, vars_num, vars_fac, vars_end, k_num = 6,k_end = 6){
+mu_spline <- function(response, vars_num, vars_fac, vars_end, k_num = 6, k_end = 6){
   paste(response," ~ 1 + (1|a|reg) + ", paste(vars_fac, collapse = " + "), " + ", 
         paste0("s(",vars_num,", k = ", k_num,", bs = 'ts')", collapse = " + ")," + ", 
         paste0("s(",vars_end,", k = ", k_end,", bs = 'tp')", collapse = " + ")) %>% 
     as.formula()
 } 
 
-
-
+# add log_pop as linear predictor
+mu_spline2 <- function(response, vars_num, vars_fac, vars_end, k_num = 6, k_end = 6){
+  paste(response,"| rate(pop) ~ 1 + (1|a|reg) + ", paste(vars_fac, collapse = " + "), " + ", 
+        paste0("s(",vars_num,", k = ", k_num,", bs = 'ts')", collapse = " + ")," + ", 
+        paste0("s(",vars_end,", k = ", k_end,", bs = 'tp')", collapse = " + ")) %>% 
+    as.formula()
+} 
 
 
 # plot conditional effects
@@ -18,7 +23,7 @@ plot_ce <- function(fit, X, resp, CI = 0.9, shift = T, n_points = 100, n_draws =
   dat_0 <- dat_0 %>% mutate(trans = "clust")
   
   #X_vals <- fit$data %>% pull(X) %>% {seq(min(.),max(.),length.out = n_points)}
-  X_vals <- fit$data %>% pull(X) %>% {seq(min(.),quantile(.,0.95),length.out = n_points)}
+  X_vals <- fit$data %>% pull(X) %>% {seq(quantile(.,0.05),quantile(.,0.95),length.out = n_points)}
   if(exp) X_vals <- fit$data %>% pull(X) %>% exp %>%  {seq(min(.),quantile(.,0.95),length.out = n_points)} %>% log
 
   X_mean <- fit$data %>% pull(X) %>% mean
@@ -54,7 +59,7 @@ plot_ce <- function(fit, X, resp, CI = 0.9, shift = T, n_points = 100, n_draws =
     geom_line(aes(y = upr), lty = "dashed", col = blues9[8]) +
     geom_line(aes(y = lwr), lty = "dashed", col = blues9[8]) +
     geom_hline(aes(yintercept = 0)) +
-    labs(x = X, y = resp) +
+    labs(x = X, y = paste("Change in",resp)) +
     ylim(c(NA,y_max))
   
 }
