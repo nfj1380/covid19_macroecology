@@ -192,11 +192,18 @@ if(F){
 # posterior predictive distribution
 if(F){
   fit_ <- readRDS("results/fit_all_deaths_2022_07_21.rds")
-  pop_set <- cvd19$pop
-  pop_set <- 1e6
+  
+  if(F){
+    pop_set <- cvd19$pop
+    cases_set <- cvd19$cases
+  } else{
+    pop_set <- 1e6
+    cases_set <- cvd19 %>% mutate(cases = (cases/pop)*pop_set) %>% pull(cases)
+  }
+
   pp_raw <- posterior_predict(fit_, newdata = cvd19 %>% 
                                 mutate(log_tests = log((exp(log_tests)/pop)*pop_set),
-                                       log_cases = log((exp(log_cases)/pop)*pop_set),
+                                       log_cases = log(cases_set),
                                        log_pop = log(pop_set))) %>% 
     as.data.frame()
   
