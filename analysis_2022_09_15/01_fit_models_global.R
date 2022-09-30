@@ -1,13 +1,10 @@
 #-------------------------------------
-# 2022_08_03
+# 2022_09_29
 #-------------------------------------
-# pacman::p_load("pbmcapply","tidyverse","brms", 
-#                'sp', 'spdep', 'spatialreg', 'ggpubr', "loo",
-#                'tidyr', 'readr', 'purr')
-
 pacman::p_load("tidyverse","brms", 
                'sp', 'spdep', 'spatialreg',
-               'pbmcapply', 'ggpubr')
+               'pbmcapply', 'ggpubr', 'loo', 'performance'
+  )
 
 rm(list=ls())
 
@@ -15,42 +12,48 @@ rm(list=ls())
 theme_set(theme_classic())
 source("99_functions.R")
 
+
 # load data set and identify predictors ----
-cvd19 <- read_csv("data/cvd19_2022_09_15.csv")
-# vars_endemic <- c("HIV.AIDS","Genital.herpes","Ascariasis","Malaria", "Tuberculosis",
-#                   "Hookworm","Schistosomiasis"); vars_endemic
-vars_numeric <- cvd19 %>% select(where(is.numeric), -pop,   
-                                   -contains(c("cases","death"))) %>% 
+cvd19 <- read_csv("data/cvd19_2022_09_29.csv")
+vars_endemic <- c("invSimp","PathCompPC2","PathCompPC3","IDburd_perMil"
+                  ); vars_endemic 
+
+#PCA1 - pos values correlate to L.filariasis, hookworm, schisto,Malaria
+#PCA2 _negative values herpes and HIV
+#PCA3 - negative values with high schisto/Malaria. Pos with tb.
+vars_numeric <- cvd19 %>% select(where(is.numeric), -log_tests,  -contains(c("cases","death","pop")), -all_of(vars_endemic)) %>% 
   names; vars_numeric
 vars_factor <- cvd19 %>% select(!where(is.numeric), -country, -reg) %>% names; vars_factor
 
 # set sampler settings ----
 seed <- 750122 # sample(1e6,1)
-control = list(adapt_delta = 0.95)
+control = list(adapt_delta = 0.99)
 cores = 4
 chains = 4
 iter = 9000
 thin = max(chains*iter/2000,1) # save a maximum of 1000 samples
 init_r = 0
-run_date <- "2022_09_15a"
+run_date <- "2022_09_30"
 
 # set predictors per response and model type ----
-
-
 resp <- "deaths" # cases, deaths
-mod <- "lm" # 'lm'"sub" or "all" #FIX ME
-offset <- 'log_cases'
+mod <- "all" # "sub" or "all"
+offset <- 'log_cases' #or log(cases)?
 
-if (mod=='all') f_mu <- mu_spline_all(resp, offset, vars_numeric,vars_factor, vars_endemic)
-if (mod=='sub') f_mu <- mu_spline_subModel(resp, offset, vars_numeric, vars_factor)
-if(mod == "lm") f_mu <- mu_linear(resp, offset, vars_numeric, vars_factor)
+if(mod == "sub") f_mu <- mu_spline_subModel(response=resp,offset= offset, vars_numeric=vars_numeric, vars_factor=vars_factor)
 
-f_shape <- shape ~ 1 + (1|a|reg)
-f_model <- bf(f_mu,f_shape) + negbinomial(); f_model
+if(mod == "lm") f_mu <- mu_linear(response=resp,offset= offset, vars_endemic=vars_endemic, vars_numeric=vars_numeric, vars_factor=vars_factor)
+
+if(mod == "all") f_mu <- mu_spline_all(response = resp, offset=offset, vars_numeric=vars_numeric, vars_endemic=vars_endemic, vars_factor=vars_factor)
+  
+
+  f_shape <- shape ~ 1 + (1|a|reg)
+  f_model <- bf(f_mu,f_shape) + negbinomial(); f_model
 
 # fit models ----
 if(T){
- 
+  
+
   brm(f_model, 
       data = cvd19, 
       cores = cores, 
@@ -66,39 +69,50 @@ if(T){
 
 # inspect fits and plot conditional effects ----
 if(F){
-  fit_cases <- readRDS(paste0("results/fit_",mod,"_",resp,"_",run_date,".rds"))
-  rhat(fit_cases) %>% max # 1.013, check convergence (Rhat<1.1)
+  fit_ <- readRDS(paste0("results/fit_",mod,"_",resp,"_",run_date,".rds"))
+  rhat(fit_) %>% max # 1.013, check convergence (Rhat<1.1)
 
-  ce_type <- "numeric" # "numeric", "endemic" # choose vars
+  ce_type <- "endemic" # "numeric", "endemic" # choose vars
+  
+  reg_level = 'Euro'
+  #reg_level = NA
   
   if(ce_type == "numeric") vars_plot <- vars_numeric else vars_plot <- vars_endemic
-  ce_plots <- pbmclapply(vars_plot, function(X) plot_ce(fit_cases,X,resp = "deaths",exp = ifelse(stringr::str_starts(X,"log"),T,F)), 
+  ce_plots <- pbmclapply(vars_plot, function(X) plot_ce(fit_,X,resp = "deaths",reg_level = 'Afri',
+                                                        exp = ifelse(stringr::str_starts(X,"log"),T,F)), 
                           mc.cores =1) #1 core supported on windows
   main_plot <- ggarrange(plotlist = ce_plots, nrow = 3, ncol = 4) %>% 
-    annotate_figure(top = text_grob("deaths", size = 16, face = "bold"), bottom = paste0("CI: 90%"))
-  ggsave(paste0("plots/ce_",resp,"_",mod,"_",ce_type,"_",run_date,".pdf"), 
+    annotate_figure(top = text_grob("deaths/cases", size = 16, face = "bold"), bottom = paste0("CI: 90%"))
+  ggsave(paste0("plots/ce_",resp,"_",mod,"_",reg_level,"_", ce_type,"_",run_date,".pdf"), 
          plot = main_plot, width = 9, height = 9, device = cairo_pdf)
 }
 
 # LOO ----
 if(F){
+  
+  run_date <- "2022_09_02"
   resp <- "deaths"
+  
   fit_all <- readRDS(paste0("results/fit_all_",resp,"_",run_date,".rds"))
+  #weird performance for fit_all
   fit_sub <- readRDS(paste0("results/fit_sub_",resp,"_",run_date,".rds"))
 
-  bayes_R2(fit_all)
-  bayes_R2(fit_sub)
 
+  r2_bayes(fit_all)
+  r2_bayes(fit_sub)
+  a <- model_performance(fit_sub)
+  b <- model_performance(fit_all)
+  
   future::plan("multisession", workers = 4)
-  loo_all <- loo(fit_all, future = T) # 17 problematic obs
-  loo_sub <- loo(fit_sub, future = T) # 13 problematic obs
+  loo_all <- loo(fit_all, future = T) # 32 problematic obs
+  loo_sub <- loo(fit_sub, future = T) # 21 problematic obs
   loo_compare(loo_all,loo_sub)
   
-  future::plan("multisession", workers = 34)
-  #fit_all_cases %>% loo(reloo = T) %>% saveRDS("results/loo_all_cases_2022_07_21.rds") # 34 refits
-  #fit_submodel_cases %>% loo(reloo = T) %>% saveRDS("results/loo_submodel_cases_2022_07_21.rds") # 13 refits
-  loo_all <- readRDS("results/loo_all_cases_2022_07_21.rds")
-  loo_sub <- readRDS("results/loo_submodel_cases_2022_07_21.rds")
+  future::plan("multisession", workers = 5)
+  fit_all %>% loo(reloo = T) %>% saveRDS("results/loo_all_deaths_2022_09_29.rds") # 34 refits
+  fit_sub %>% loo(reloo = T) %>% saveRDS("results/loo_submodel_deaths_2022_09_29.rds") # 13 refits
+  loo_all <- readRDS("results/loo_all_deaths_2022_09_29.rds")
+  loo_sub <- readRDS("results/loo_submodel_deaths_2022_07_21.rds")
   nlist(loo_all, loo_sub) %>% loo_compare()
   
   
@@ -121,11 +135,14 @@ if(F){
 
 # posterior predictive distribution ----
 if(F){
-  resp <- "cases"
-  mod <- "all"
+  resp <- "deaths"
+  mod <- "sub"
+  run_date <- "2022_09_01"
+  cvd19 <- read_csv("data/cvd19_2022_07_04.csv")
+  
   fit_ <- readRDS(paste0("results/fit_",mod,"_",resp,"_",run_date,".rds"))
   pop_set <- cvd19$pop # cvd19$pop or 1e6 etc.
-  pp_raw <- posterior_epred(fit_, newdata = cvd19 %>% 
+  pp_raw <- posterior_predict(fit_, newdata = cvd19 %>% 
                                 mutate(log_tests = log((exp(log_tests)/pop)*pop_set), 
                                        log_pop = log(pop_set))) %>% 
     as.data.frame()
@@ -145,7 +162,7 @@ if(F){
               mean1 = median(y_pred[is.finite(y_pred)], na.rm = F),
               mean = median(y_pred, na.rm = F)
     ) %>% 
-    left_join(cvd19 %>% select(country,y_obs = resp, reg, pop), by = "country") %>% 
+    left_join(cvd19 %>% select(country,y_obs = deaths, reg, pop), by = "country") %>% 
     mutate(y_obs = (y_obs/pop)*pop_set,
            q975 = pmin(q975,log(pop_set)),
            q75 = pmin(q75,log(pop_set)),
@@ -157,7 +174,7 @@ if(F){
     geom_linerange(aes(ymin = q25, ymax = q75, col = reg), size = 1.5, alpha = 1) +
     #geom_point(aes(y = mean, col = reg), alpha = 1, shape = 18, size = 2) +
     geom_line(aes(y = mean, group = reg), col = "white", size =0.6) +
-   # geom_line(aes(y = mean1, group = reg), col = "blue") +
+    geom_line(aes(y = mean1, group = reg), col = "blue") +
     #geom_line(aes(y = log(pop), group = reg), col = "green") +
     geom_point(aes(y = y_obs), size =0.7) +
     theme_classic() +
@@ -165,12 +182,12 @@ if(F){
     scale_color_brewer(type = "div", palette = "Dark2") +
     guides(color = guide_legend(nrow = 1, byrow = TRUE, title = NULL)) +
     ylim(c(3,NA)) +
-    labs(title = paste0("Global ", resp),
+    labs(title = "Global deaths/cases", 
          subtitle = "Posterior predictive distribution",
-         x = "Countries",
-         y = paste0("log(", resp, ') per 1,000,000 people)"')) # edit as per pop_set
+         x = "Countries (ordered by region and predicted mean cases)",
+         y = "log(deaths) per 1,000,000 people") # edit as per pop_set
   
-  ggsave("plots/global_deaths_ppd_perMillion_2022_09_15_noline.pdf", height = 6, width = 8)
+  #ggsave("plots/global_deaths_ppd_perMillion_2022_09_30.pdf", height = 6, width = 8)
   
   
 }

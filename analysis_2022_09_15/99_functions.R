@@ -1,23 +1,23 @@
 
 # construct spline-based model formula for the mean
-mu_spline_all <- function(resp, offset, vars_numeric, vars_factor, vars_endemic, k_num = 6, k_end = 6){
-  paste(resp," | rate(",offset,") ~ 1 + (1|a|reg) + ", paste(vars_factor, collapse = " + "), " + ", 
+mu_spline_all <- function(response, offset, vars_numeric, vars_factor, vars_endemic, k_num = 6, k_end = 6){
+  paste(response," | rate(",offset,") ~ 1 + (1|a|reg) + ", paste(vars_factor, collapse = " + "), " + ", 
         paste0("s(",vars_numeric,", k = ", k_num,", bs = 'ts')", collapse = " + ")," + ", 
         paste0("s(",vars_endemic,", k = ", k_end,", bs = 'ts')", collapse = " + ")) %>% 
     as.formula()
 } 
 
-mu_spline_subModel <- function(resp, offset, vars_numeric, vars_factor, k_num = 6){
-  paste(resp," | rate(",offset,") ~ 1 + (1|a|reg) + ", paste(vars_factor, collapse = " + "), " + ", 
+mu_spline_subModel <- function(response, offset, vars_numeric, vars_factor, k_num = 6){
+  paste(response," | rate(",offset,") ~ 1 + (1|a|reg) + ", paste(vars_factor, collapse = " + "), " + ", 
         paste0("s(",vars_numeric,", k = ", k_num,", bs = 'ts')", collapse = " + ")) %>% 
     as.formula()
 } 
 
 
-mu_linear <- function(resp, offset, vars_numeric, vars_factor){
-  paste(resp," | rate(",offset,") ~ 1 + (1|a|reg) + ",
+mu_linear <- function(response, offset, vars_numeric,vars_endemic, vars_factor){
+  paste(response," | rate(",offset,") ~ 1 + (1|a|reg) + ",
         paste(vars_factor, collapse = " + "), " + ",
-       # paste0(vars_endemic, collapse = " + ")," + ", 
+        paste0(vars_endemic, collapse = " + ")," + ", 
         paste0(vars_numeric, collapse = " + ")) %>%
     as.formula()
 }
