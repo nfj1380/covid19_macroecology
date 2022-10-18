@@ -20,35 +20,16 @@ glimpse(cvd19_pre)
  #is mean age/pathogen diversity a better predictor of 
 #cases than mean age alone?
 
-
-#run a PCA including invSimp, mean_age
-Age_div <- cvd19_pre %>% select(country, invSimp, meanAge ) %>% 
-    column_to_rownames( var = "country") %>% 
-    princomp(cor = TRUE, scores = TRUE) 
-
-Age_div  %>% fviz_pca_biplot( repel = TRUE,
-                             col.var = "#2E9FDF", # Variables color
-                             col.ind = "#696969"  # Individuals color
-)
-Age_div %>% fviz_eig()
-
-
-
-
-res.ind <-  get_pca_ind(Age_div) 
-
-coords_ageDiv <- res.ind$coord %>% 
-         as.data.frame() %>%
-         rownames_to_column() %>% 
-         select(-Dim.2) %>% 
-         rename(country=rowname, ageDivPC1 = Dim.1)#scree plot shows this explains little 
-
 PathComp <- cvd19_pre %>% select(country, Lymphatic.filariasis,
                                  Schistosomiasis,Hookworm,Tuberculosis,
                                  Trichuriasis, Malaria, Ascariasis,
                                  Genital.herpes, HIV.AIDS ) %>%
   column_to_rownames( var = "country") %>%
   princomp(cor = TRUE, scores = TRUE)
+
+res.var <- get_pca_var(PathComp)
+res.var$coord          # Coordinates
+res.var$contrib
 
 PathComp  %>% fviz_pca_biplot( repel = TRUE,col.var = "#2E9FDF", # Variables color
                                col.ind = "#696969")  # Individuals color
@@ -89,9 +70,9 @@ cvd19_all %>% dplyr::select(where(is.numeric)) %>% cor %>% corrplot::corrplot()
 # remove strongly correlated predictors
 cvd19 <- cvd19_all %>% select(-invSimp, -GDPpc, -IDBurd,
                               -cases_per_mil, -deaths_per_mil, #pathCOmpPC1 stronggly correlated with ageDiv
-                              -PathCompPC1, -meanAge,-Lymphatic.filariasis,
+                              -invSimp, -Lymphatic.filariasis,
                               -Schistosomiasis,-Hookworm,-Tuberculosis,
                               -Trichuriasis, -Malaria, -Ascariasis,
-                              -Genital.herpes, -HIV.AIDS, temp)
+                              -Genital.herpes, -HIV.AIDS, -temp, -ageDivPC1)
 
-#write_csv(cvd19,"data/cvd19_2022_07_04.csv")
+#write_csv(cvd19,"data/cvd19_2022_10_17.csv")
